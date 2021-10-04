@@ -16,7 +16,7 @@ public struct StarAction
   public enum ActionType
   {
     Move,
-    SimpleAttack,
+    StandardAttack,
   }
   
   public string Name;
@@ -41,7 +41,27 @@ public class StarUnit : MonoBehaviour
    */
 
   // A list of actions that we are able to use.
-  public List<StarAction> actions = new List<StarAction>();
+  public StarAction[] actions;
+
+  StarUnit()
+  {
+    actions = new[]
+    {
+      new StarAction
+      {
+        Name = "Move Ship",
+        Callback = MoveCommand,
+        Type = StarAction.ActionType.Move
+      },
+      new StarAction
+      {
+        Name = "Standard Attack",
+        Callback = StandardAttack,
+        Type = StarAction.ActionType.StandardAttack
+      },
+    };
+
+  }
   
   // Link to the root game object.
   public UnitSelectionAndCommands gameManager;
@@ -60,21 +80,6 @@ public class StarUnit : MonoBehaviour
   }
   void Start()
   {
-    // We will add a list of actions that we can perform.
-    actions.Add( new StarAction
-    {
-      Name = "Move Ship",
-      Callback = MoveCommand,
-      Type = StarAction.ActionType.Move,
-    });
-    
-    actions.Add(new StarAction
-    {
-      Name = "Standard Attack",
-      Callback = StandardAttack,
-      Type = StarAction.ActionType.SimpleAttack,
-    });
-    
   }
 
   public void PrepareForResolver()
@@ -122,45 +127,34 @@ public class StarUnit : MonoBehaviour
    
    MoveCommand: - move the ship to the location.
    */
-  
+
+  StarAction GetActionForMethod(UnityAction callback)
+  {
+    // TODO find a better way to do this, we shouldn't have to find it each time.
+    return Array.Find(actions, action =>  action.Callback == callback);
+  }
   async void MoveCommand()
   {
     PreActionCommands();
-    // Request a target Point
     var targetPoint = await gameManager.RequestTargetPoint();
 
     if (targetPoint is null)
     {
-      Debug.Log("Cancelled!");
-      // we still want to show the menu; so re-enable that if possible
+      CommandCancelled();
       return;
     }
-    // We've got a point, let's draw a line on the interafce.
-    _interface.DrawMovementAction(targetPoint.Value);
     
-    //add to the list 
-    _nextCommandsToDo.Enqueue(new StarCommand
+    var command = new StarCommand
     {
-      Action = actions[0], //TODO better this.
+      Action = GetActionForMethod(MoveCommand),
       Target = targetPoint.Value
-    });
+    };
+    
+    _interface.DrawCommand(command);
+    _nextCommandsToDo.Enqueue(command);
+    
     //Order is issued so let's just deselect ourselves now
     DeSelect();
-  }
-
-  void PreActionCommands()
-  {
-    Debug.Assert(!(gameManager is null), "Unable to find game manager from within StarUnit when trying" +
-                                         "to create a command");
-    
-    //TODO remove this to allow for "chained" commands (shift clicks)
-    _nextCommandsToDo.Clear();
-  }
-
-  void CommandCancelled()
-  {
-      Debug.Log("Cancelled!");
-      // we still want to show the menu; so re-enable that if possible
   }
   
   async void StandardAttack()
@@ -174,11 +168,9 @@ public class StarUnit : MonoBehaviour
       CommandCancelled();
       return;
     }
-    // TODO find a better way to do this, we shouldn't have to find it each time.
-    var action = actions.Find(a => a.Type == StarAction.ActionType.SimpleAttack);
     var command = new StarCommand
     {
-      Action = action,
+      Action = GetActionForMethod(StandardAttack),
       Target = targetPoint.Value
     };
     
@@ -205,6 +197,21 @@ public class StarUnit : MonoBehaviour
   public void PerformDeSelectActions()
   {
     _interface.SetSelected(false);
+  }
+
+  void PreActionCommands()
+  {
+    Debug.Assert(!(gameManager is null), "Unable to find game manager from within StarUnit when trying" +
+                                         "to create a command");
+    
+    //TODO remove this to allow for "chained" commands (shift clicks)
+    _nextCommandsToDo.Clear();
+  }
+
+  void CommandCancelled()
+  {
+      Debug.Log("Cancelled!");
+      // we still want to show the menu; so re-enable that if possible
   }
 
 }

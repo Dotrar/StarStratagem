@@ -1,3 +1,5 @@
+using System;
+using System.ComponentModel;
 using UnityEngine;
 
 public class StarUnitInterface : MonoBehaviour
@@ -131,6 +133,11 @@ public class StarUnitInterface : MonoBehaviour
             {
                 theCommand.Target
             });
+        }
+        else if (theCommand.Action.Type == StarAction.ActionType.StandardAttack)
+        {
+            // not yet implemented. TODO 
+            throw new NotImplementedException("Standard attack line");
         }
         
     }
