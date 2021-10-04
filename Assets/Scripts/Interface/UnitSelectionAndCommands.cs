@@ -17,9 +17,15 @@ public class UnitSelectionAndCommands : MonoBehaviour
      * - Giving that command to starunits
      */
     private const float DragMagnitudeDelta = 0.001f;
+    
+    /*
+     * - Make a state machine to hold the command "mode"
+     * 
+     */
 
 
     public Texture2D targetCursor;
+    public StarCanvasManager canvasHudGameObject;
     
     [HideInInspector] 
     public const int LeftMouseButton = 0;
@@ -41,19 +47,41 @@ public class UnitSelectionAndCommands : MonoBehaviour
     // targeting mode?
     private bool _isInTargetMode = false;
     private Vector2? _targetPoint = null;
+    private bool _hasCancelledCommand = false;
+    //-----------------------------------------
+    private Vector2 _displayCursorOffset;
+    
+    
     void Start()
     {
         _mainCamera = Camera.main;
+        
+        // calculate cursor offset
+        _displayCursorOffset = new Vector2(targetCursor.width / 2.0f, targetCursor.height / 2.0f);
     }
 
     // Update is called once per frame
     void Update()
     {
+        // Check - is the mouse in a region that would possibly be handled by someone else? mainly
+        // handling buttons here. 
+        if (CheckForUiElements(Input.mousePosition))
+        {
+            ShowNormalCursor();
+            return;
+        }
+
+        if (_isInTargetMode)
+        {
+            ShowTargetCursor();
+        }
+        
         Vector3 mouseWorldPositionThisFrame = _mainCamera.ScreenToWorldPoint(Input.mousePosition);
         Vector2 mousePosition2D = new Vector2(mouseWorldPositionThisFrame.x, mouseWorldPositionThisFrame.y);
-
+        
+        // Are we trying to click on a unit? or send a command somewhere?
         if (Input.GetMouseButtonUp(LeftMouseButton) && ! _userIsDragging){
-            if (_isInTargetMode)
+            if (_isInTargetMode) 
             {
                 _targetPoint = mousePosition2D;
             }
@@ -64,8 +92,17 @@ public class UnitSelectionAndCommands : MonoBehaviour
         }
     }
 
+    private bool CheckForUiElements(Vector3 mousePosition)
+    {
+        if (!canvasHudGameObject) return false;
+
+        return canvasHudGameObject.PointMightClickButton(new Vector2(mousePosition.x, mousePosition.y));
+
+    }
+
     private void LateUpdate()
     {
+        CheckForCommandCancel();
         //this must be called last, to be used in next frame, n+1
         CheckForDrag();
     }
@@ -92,43 +129,74 @@ public class UnitSelectionAndCommands : MonoBehaviour
         }
     }
 
-    public async Task<Vector2> RequestTargetPoint()
+    void CheckForCommandCancel()
     {
+        if (Input.GetKeyUp(KeyCode.Escape)  && _isInTargetMode)
+        {
+            _hasCancelledCommand = true;
+        }
+    }
+
+    // ReSharper disable Unity.PerformanceAnalysis
+    public async Task<Vector2?> RequestTargetPoint()
+    {
+        // await 1 to clear the current mouseUp callback
+        await Task.Delay(1);
+        
         // One of the star units have requested a target, so we give this target mode
         // to the user
         EnableTargetMode();
 
         //wait until we have a value
-        //TODO is there a better way to do this?
-        while (_targetPoint is null)
+        while (_targetPoint is null && !_hasCancelledCommand)
         {
             await Task.Delay(100);
         }
-
-        Vector2 value = _targetPoint.Value;
+        // We have either cancelled or received a point,
+        // either way, we will disable target mode now
         
         DisableTargetMode();
         
-        Debug.Log("waited 2 second");
-        return value;
+        _hasCancelledCommand = false;
+        // return whatever _targetPoint might be, null is interpreted as a cancel.
+        return _targetPoint;
+    }
+
+    void ShowTargetCursor()
+    {
+        if(targetCursor)
+            Cursor.SetCursor(targetCursor, _displayCursorOffset, CursorMode.Auto);
+        else
+            Debug.LogWarning("No TargetCursor Set");
+    }
+
+    void ShowNormalCursor()
+    {
+        Cursor.SetCursor(null, Vector2.zero, CursorMode.Auto);
     }
 
     void EnableTargetMode()
     {
+        //Enable target mode, which is to show the cursor, and etc.
         _isInTargetMode = true;
         _targetPoint = null;
-        if(targetCursor)
-            // TODO change offset
-            Cursor.SetCursor(targetCursor, Vector2.zero, CursorMode.Auto);
-        else
-            Debug.LogWarning("No TargetCursor Set");
-        
+        _hasCancelledCommand = false;
+        ShowTargetCursor();
+    }
+
+    public bool IsInTargetMode()
+    {
+        return _isInTargetMode;
     }
 
     void DisableTargetMode()
     {
+        // Leave target mode, undoing all actions by EnableTargetMode
+        // Should have class create/destroy manage these things to ensure
+        // that resources are correctly managed TODO in future.
         _isInTargetMode = false;
-        Cursor.SetCursor(null, Vector2.zero, CursorMode.Auto);
+        _hasCancelledCommand = false;
+        ShowNormalCursor();
     }
     void SelectObjectUnderPoint(Vector2 worldPoint)
     {
@@ -168,14 +236,14 @@ public class UnitSelectionAndCommands : MonoBehaviour
         yield return new WaitForEndOfFrame();
         if (_shouldDeSelect && _selectedUnit)
         {
-            _selectedUnit.DeSelect();
+            _selectedUnit.PerformDeSelectActions();
             _selectedUnit = null;
         }
 
         _shouldDeSelect = false;
     }
 
-    void DeSelect()
+    public void DeSelect()
     {
         _shouldDeSelect = true;
         StartCoroutine(DeSelectAfterFrame());
@@ -199,7 +267,7 @@ public class UnitSelectionAndCommands : MonoBehaviour
 
         if (_selectedUnit)
         {
-            _selectedUnit.DeSelect();
+            _selectedUnit.PerformDeSelectActions();
         }
         _selectedUnit = unit.Select();
     }
